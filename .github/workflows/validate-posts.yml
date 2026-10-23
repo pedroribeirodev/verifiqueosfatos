@@ -1,0 +1,37 @@
+name: Validate posts.json
+
+on:
+  pull_request:
+    paths:
+      - "posts.json"
+      - "scripts/validate_posts.py"
+      - "tests/**"
+      - ".github/workflows/validate-posts.yml"
+  push:
+    paths:
+      - "posts.json"
+      - "scripts/validate_posts.py"
+      - "tests/**"
+      - ".github/workflows/validate-posts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-posts:
+    name: Check posts.json
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Run validator unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Validate posts.json
+        run: python scripts/validate_posts.py posts.json

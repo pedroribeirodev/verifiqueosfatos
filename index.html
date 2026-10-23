@@ -10,14 +10,16 @@
   <link rel="stylesheet" href="/style.css">
   <meta name="theme-color" content="#FAFAFA">
   <script>
-    // Applies the saved theme before first paint. Light is the default.
+    // Applies the theme before first paint: the saved choice, otherwise the system's
     function setTheme(dark) {
       document.documentElement.dataset.theme = dark ? 'dark' : 'light';
       document.querySelector('meta[name=theme-color]').content = dark ? '#0A0A0A' : '#FAFAFA';
     }
+    let savedTheme = null;
     try {
-      setTheme(localStorage.getItem('theme') === 'dark');
+      savedTheme = localStorage.getItem('theme');
     } catch {}
+    setTheme(savedTheme ? savedTheme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches);
   </script>
 
   <title>Verifique os Fatos</title>
@@ -55,9 +57,22 @@
       </button>
     </header>
 
-    <main></main>
+    <main class="loading"></main>
 
     <footer class="foot">
+      <details class="how">
+        <summary>Como classificamos as falas</summary>
+        <dl>
+          <dt><span class="badge" data-c="1">Verdadeiro</span></dt>
+          <dd>A fala confere com os dados de fontes públicas e confiáveis.</dd>
+          <dt><span class="badge" data-c="2">Falso</span></dt>
+          <dd>A fala contradiz os dados disponíveis.</dd>
+          <dt><span class="badge" data-c="3">Parcial</span></dt>
+          <dd>Parte da fala confere, mas há exagero, imprecisão ou falta de contexto.</dd>
+        </dl>
+        <p>A mesma régua vale para todos os candidatos. Só classificamos o que pode ser conferido com dados: opiniões ficam de fora. Cada verificação explica o que foi conferido e onde.</p>
+        <p>As checagens são feitas ao vivo, durante o debate, e podem ser revisadas.</p>
+      </details>
       <p>Um projeto feito pela comunidade para a comunidade.</p>
     </footer>
   </div>
@@ -93,26 +108,35 @@
       }
     }
 
-    function createCardHTML(item) {
+    function createCardHTML(item, index) {
       return `
-        <article class="card">
+        <article class="card" id="f${index}">
           <header>
             <img src="/${labels.i[item.n]}" alt="" width="56" height="56" decoding="async" loading="lazy">
             <h2>${labels.n[item.n]}</h2>
             <span class="badge" data-c="${item.c}">${labels.c[item.c]}</span>
           </header>
-          <div class="said">
-            <span class="label">Disse que</span>
+          <span class="label">Disse que:</span>
+          <blockquote class="said">
             <p>${escapeHTML(item.t)}</p>
-          </div>
-          <span class="label">Verificação</span>
+          </blockquote>
+          <span class="label">Verificação:</span>
           <p>${escapeHTML(item.v)}</p>
+          ${createSourcesHTML(item.s)}
+          <button class="share" type="button" data-index="${index}">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m0 0L7 8m5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>
+            <span>Compartilhar</span>
+          </button>
         </article>
       `;
     }
 
+    function canRender(item) {
+      return !!(item && labels.n[item.n] && labels.c[item.c] && item.t != null && item.t !== '');
+    }
+
     function render(newData, containerSelector = 'main') {
-      const items = newData || getLS();
+      const items = (Array.isArray(newData) ? newData : getLS()).filter(canRender);
 
       if (!items || !items.length) {
         document.querySelector(containerSelector).innerHTML = '';
@@ -143,9 +167,9 @@
         if (newItems.length > 0) {
           const fragment = document.createDocumentFragment();
           
-          newItems.forEach(item => {
+          newItems.forEach((item, i) => {
             const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = createCardHTML(item).trim();
+            tempDiv.innerHTML = createCardHTML(item, currentPosts.length + i).trim();
             fragment.appendChild(tempDiv.firstChild);
           });
 
@@ -156,11 +180,25 @@
 
       // Update in-memory reference
       currentPosts = items;
-      
+
+      const shared = location.hash && document.getElementById(location.hash.slice(1));
+      if (shared) {
+        shared.classList.add('shared');
+        history.replaceState(null, '', location.pathname);
+        setTimeout(() => shared.scrollIntoView({ block: 'center' }), 400);
+      }
+    }
+
+    function createSourcesHTML(sources) {
+      const links = (Array.isArray(sources) ? sources : [])
+        .map(u => { try { return new URL(u); } catch {} })
+        .filter(u => u && (u.protocol === 'https:' || u.protocol === 'http:'))
+        .map(u => `<li><a href="${escapeHTML(u.href)}" target="_blank" rel="noopener noreferrer">${escapeHTML(u.hostname.replace(/^www\./, ''))}</a></li>`);
+      return links.length ? `<span class="label">Fontes:</span><ul class="sources">${links.join('')}</ul>` : '';
     }
 
     function escapeHTML(str) {
-      return str.replace(/[&<>'"]/g, 
+      return String(str ?? '').replace(/[&<>'"]/g,
         tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
       );
     }
@@ -183,7 +221,12 @@
       return fetch(`${URI_POSTS_JSON}?v=${generateAlphanumeric()}`)
         .then(r => r.json())
         .then(data => {
-          if (Array.isArray(data) && !data.length) {
+          // First answer from the server: from now on an empty list really means "nothing yet"
+          document.querySelector('main').classList.remove('loading');
+
+          if (!Array.isArray(data)) return;
+
+          if (!data.length) {
             window.localStorage.removeItem('data');
             render([]);
           }
@@ -207,6 +250,28 @@
         localStorage.setItem('theme', dark ? 'dark' : 'light');
       } catch {}
     };
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.share');
+      const item = btn && currentPosts[btn.dataset.index];
+      if (!item) return;
+
+      const title = `Veja se ${labels.n[item.n]} falou a verdade`;
+      const text = `${labels.n[item.n]} disse que: "${item.t}"\n\nSerá que é verdade? Veja a checagem:`;
+      const url = `${location.origin}/#f${btn.dataset.index}`;
+
+      if (navigator.share) {
+        navigator.share({ title, text, url }).catch(() => {});
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(`${text}\n${url}`);
+        const label = btn.querySelector('span');
+        label.textContent = 'Copiado!';
+        setTimeout(() => label.textContent = 'Compartilhar', 2000);
+      } catch {}
+    });
 
     // Initial render from localStorage, then perform first fetch
     render();
