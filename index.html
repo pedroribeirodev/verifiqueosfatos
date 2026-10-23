@@ -162,20 +162,18 @@
       if (currentPosts.length === 0) {
         grid.innerHTML = items.map(createCardHTML).join('');
       } else {
-        // 3. Otherwise, append/prepend ONLY the new items to avoid re-rendering existing DOM nodes
-        const newItems = items.slice(currentPosts.length);
-        if (newItems.length > 0) {
-          const fragment = document.createDocumentFragment();
-          
-          newItems.forEach((item, i) => {
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = createCardHTML(item, currentPosts.length + i).trim();
-            fragment.appendChild(tempDiv.firstChild);
-          });
-
-          // Change to prepend() if newest posts should appear at the top
-          grid.appendChild(fragment); 
+        const y = window.scrollY;
+        const cards = grid.children;
+        for (let i = 0; i < items.length; i++) {
+          const prev = currentPosts[i];
+          const item = items[i];
+          if (cards[i] && prev && JSON.stringify(prev) === JSON.stringify(item)) continue;
+          const html = createCardHTML(item, i).trim();
+          if (cards[i]) cards[i].outerHTML = html;
+          else grid.insertAdjacentHTML('beforeend', html);
         }
+        while (cards.length > items.length) cards[cards.length - 1].remove();
+        if (window.scrollY !== y) window.scrollTo(0, y);
       }
 
       // Update in-memory reference
